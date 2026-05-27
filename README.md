@@ -2,9 +2,10 @@
 
 > **AI-first QA Engineering** — Built with Playwright + TypeScript, powered by Claude Code & GitHub Copilot
 
-[![CI](https://github.com/YOUR_USERNAME/payments-api-playwright-ts/actions/workflows/ci.yml/badge.svg)](https://github.com/YOUR_USERNAME/payments-api-playwright-ts/actions)
+[![CI](https://github.com/ebpayments/payments-api-playwright-ts/actions/workflows/ci.yml/badge.svg)](https://github.com/ebpayments/payments-api-playwright-ts/actions)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.x-blue)](https://www.typescriptlang.org/)
 [![Playwright](https://img.shields.io/badge/Playwright-1.x-green)](https://playwright.dev/)
+[![Stripe](https://img.shields.io/badge/Stripe-Sandbox-635bff)](https://stripe.com/docs/testing)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 ---
@@ -13,11 +14,10 @@
 
 A production-style test automation framework simulating a **fintech payments platform**, covering:
 
-- **API Testing** — Transaction processing, payment capture, tokenization, refunds
-- **UI Testing** — Checkout flows, error states, responsive behavior
-- **AI-Assisted Development** — Test generation and review via Claude Code + GitHub Copilot
-
-This repo demonstrates real-world QA engineering patterns used in payment processing systems (TSYS, GlobalPay-style integrations), built with an **AI-first workflow**.
+- **API Testing** — Payment intents, charges, tokenization against real Stripe Sandbox API
+- **UI Testing** — Custom checkout page with Stripe token integration
+- **Database Validation** — SQLite persistence and query verification
+- **AI-Assisted Development** — Claude Code + GitHub Copilot with CLAUDE.md workflow
 
 ---
 
@@ -25,32 +25,60 @@ This repo demonstrates real-world QA engineering patterns used in payment proces
 
 ```
 payments-api-playwright-ts/
+│
 ├── api-tests/
-│   ├── tests/                  # API test specs
-│   │   ├── transactions.spec.ts
-│   │   ├── payments.spec.ts
-│   │   └── tokenization.spec.ts
-│   └── helpers/
-│       ├── api.helper.ts       # Base request helper
-│       └── auth.helper.ts      # Token/auth utilities
+│   ├── builders/
+│   │   ├── charge.builder.ts           # Fluent request builder for charges
+│   │   └── payment-intent.builder.ts   # Fluent request builder for payment intents
+│   ├── readers/
+│   │   ├── charge.reader.ts            # Response parser for charge objects
+│   │   └── payment-intent.reader.ts    # Response parser for payment intent objects
+│   ├── assertions/
+│   │   └── payment.assertions.ts       # Custom assertion library with descriptive errors
+│   ├── data/
+│   │   ├── charges.json                # Data-driven test scenarios for charges
+│   │   └── payment-intents.json        # Data-driven test scenarios for payment intents
+│   ├── helpers/
+│   │   └── api.helper.ts               # Base HTTP request helper with auth
+│   └── tests/
+│       ├── payments.spec.ts            # Payment intent tests (create, confirm, retrieve, list)
+│       ├── transactions.spec.ts        # Charge tests (success, decline, retrieve, list)
+│       ├── tokenization.spec.ts        # Tokenization and card brand tests
+│       └── db-validation.spec.ts       # API + SQLite database validation tests
+│
 ├── ui-tests/
-│   ├── tests/                  # UI test specs
-│   │   ├── checkout.spec.ts
-│   │   └── payment-form.spec.ts
-│   └── pages/                  # Page Object Models
-│       ├── checkout.page.ts
-│       └── payment.page.ts
-├── fixtures/
-│   ├── test-data.ts            # Shared test data
-│   └── mock-responses.ts       # Mock API responses
+│   ├── pages/
+│   │   └── checkout.page.ts            # Page Object Model for checkout UI
+│   ├── assertions/
+│   │   └── checkout.assertions.ts      # UI-specific assertion library
+│   ├── data/
+│   │   └── cards.json                  # Test card scenarios (success, declined, invalid)
+│   └── tests/
+│       ├── checkout-happy.spec.ts      # Happy path: load, fill, submit
+│       ├── checkout-validation.spec.ts # Form validation, masking, formatting
+│       └── checkout-errors.spec.ts     # Decline scenarios, error states
+│
+├── database/
+│   ├── db.helper.ts                    # SQLite CRUD wrapper
+│   ├── stripe-sync.ts                  # Syncs Stripe API responses to SQLite
+│   └── stripe.db                       # Local SQLite database
+│
+├── mock-ui/
+│   ├── server.ts                       # Express.js server — serves checkout + proxies to Stripe
+│   └── index.html                      # Custom checkout page with Stripe token integration
+│
 ├── utils/
-│   └── reporter.ts             # Custom reporter
-├── .github/workflows/
-│   └── ci.yml                  # GitHub Actions pipeline
-├── CLAUDE.md                   # AI workflow instructions
-├── playwright.config.ts
-├── package.json
-└── tsconfig.json
+│   └── reporter.helper.ts              # Attaches request/response/DB logs to test reports
+│
+├── .github/
+│   └── workflows/
+│       └── ci.yml                      # GitHub Actions CI pipeline
+│
+├── CLAUDE.md                           # AI workflow instructions for Claude Code
+├── playwright.config.ts                # Playwright config (api + ui-chromium projects)
+├── tsconfig.json                       # TypeScript strict config
+├── package.json                        # npm scripts and dependencies
+└── .env.example                        # Environment variable template
 ```
 
 ---
@@ -58,26 +86,36 @@ payments-api-playwright-ts/
 ## 🚀 Getting Started
 
 ### Prerequisites
+
 - Node.js 18+
-- npm or yarn
+- Stripe account (free sandbox — no credit card required)
 
 ### Install
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/payments-api-playwright-ts.git
+git clone https://github.com/ebpayments/payments-api-playwright-ts.git
 cd payments-api-playwright-ts
 npm install
-npx playwright install
+npx playwright install chromium
 ```
 
 ### Environment Setup
 
 ```bash
 cp .env.example .env
-# Fill in your sandbox credentials
 ```
 
-### Run Tests
+Edit `.env`:
+
+```
+BASE_URL=https://api.stripe.com
+API_TOKEN=sk_test_...
+MERCHANT_ID=your_merchant_id
+```
+
+---
+
+## 🧪 Running Tests
 
 ```bash
 # All tests
@@ -86,70 +124,151 @@ npm test
 # API tests only
 npm run test:api
 
-# UI tests only
+# UI tests only (requires mock server — see below)
 npm run test:ui
 
-# With HTML report
+# Database validation tests
+npm run test:db
+
+# HTML report
 npm run test:report
+
+# Allure report
+npm run test:allure
+```
+
+### Running UI Tests
+
+UI tests require the mock checkout server to be running:
+
+```bash
+# Terminal 1 — start the server
+npx ts-node mock-ui/server.ts
+
+# Terminal 2 — run UI tests
+npm run test:ui
+
+# Watch mode (visible browser)
+npx playwright test ui-tests/ --headed
+```
+
+---
+
+## 📊 Test Coverage
+
+### API Tests — 36 tests
+
+| Spec | Scenarios | Count |
+|------|-----------|-------|
+| `payments.spec.ts` | Create, confirm, retrieve, list payment intents + validation errors | 13 |
+| `transactions.spec.ts` | Create charges (Visa/MC/Amex), decline scenarios, retrieve, list | 8 |
+| `tokenization.spec.ts` | Card brand tokenization, decline flows, PAN security | 8 |
+| `db-validation.spec.ts` | API + SQLite persistence, queries, aggregation | 7 |
+
+### UI Tests — 15 tests
+
+| Spec | Scenarios | Count |
+|------|-----------|-------|
+| `checkout-happy.spec.ts` | Page load, button enable, successful payments (data-driven) | 4 |
+| `checkout-validation.spec.ts` | Incomplete card, CVV masking, formatting, PAN in DOM | 6 |
+| `checkout-errors.spec.ts` | Decline messages, button re-enable, state cleanup | 5 |
+
+**Total: 51 tests**
+
+---
+
+## 🏛️ Architecture & Design Patterns
+
+| Pattern | Implementation |
+|---------|---------------|
+| **Builder Pattern** | `ChargeBuilder`, `PaymentIntentBuilder` — fluent API for request construction |
+| **Reader Pattern** | `ChargeReader`, `PaymentIntentReader` — typed response accessors |
+| **Page Object Model** | `CheckoutPage` — encapsulates UI locators and interactions |
+| **Custom Assertions** | `PaymentAssertions`, `CheckoutAssertions` — descriptive, reusable checks |
+| **Data-Driven Testing** | JSON files + `for...of` loops — zero-code scenario expansion |
+| **AAA Structure** | Every test follows Arrange / Act / Assert |
+
+---
+
+## 💳 Card Scenarios
+
+| Scenario | Stripe Token | Expected Result |
+|----------|-------------|-----------------|
+| Visa Success | `tok_visa` | `status: succeeded` |
+| Mastercard Success | `tok_mastercard` | `status: succeeded` |
+| Amex Success | `tok_amex` | `status: succeeded` |
+| Generic Decline | `tok_chargeDeclined` | `code: card_declined` |
+| Insufficient Funds | `tok_chargeDeclinedInsufficientFunds` | `decline_code: insufficient_funds` |
+| Expired Card | `tok_chargeDeclinedExpiredCard` | `code: expired_card` |
+
+---
+
+## 🗄️ Database Validation
+
+After each API call, responses are synced to SQLite and verified:
+
+```typescript
+// API call
+const response = await request.post(`${BASE_URL}/charges`, { headers, form });
+const body = await response.json();
+
+// Sync to DB
+sync.syncCharge(body);
+
+// DB validation
+const dbRecord = sync.getDb().getChargeById(body.id);
+expect(dbRecord!.status).toBe('succeeded');
+expect(dbRecord!.card_brand).toBe('visa');
+```
+
+---
+
+## 🖥️ UI Testing — Custom Checkout Page
+
+The UI layer tests a custom Express.js checkout page built specifically for this framework. Key features:
+
+- **Stripe token integration** — no raw card numbers sent to server
+- **Real Stripe API calls** — server proxies payments to Stripe sandbox
+- **data-testid selectors** — stable, accessibility-friendly locators
+- **PAN security assertion** — verifies raw card numbers never appear in DOM
+
+```
+User fills form → Stripe token set in hidden field → Server receives token → Stripe charges card
+```
+
+---
+
+## 📈 Reporting
+
+### Playwright HTML Report
+
+```bash
+npx playwright test --reporter=html
+npx playwright show-report
+```
+
+### Allure Report
+
+```bash
+npx playwright test --reporter=allure-playwright
+npx allure generate allure-results --clean -o allure-report
+npx allure open allure-report
 ```
 
 ---
 
 ## 🤖 AI-First Workflow
 
-This framework was built using an **AI-augmented QA engineering approach**:
-
 | Tool | Usage |
 |------|-------|
 | **Claude Code** | Test scaffolding, CLAUDE.md-guided generation, code review |
-| **GitHub Copilot** | Inline autocomplete for selectors, assertions, and fixtures |
+| **GitHub Copilot** | Inline autocomplete for selectors, assertions, fixtures |
 | **Playwright MCP** | AI-driven page discovery for selector generation |
 
-> `CLAUDE.md` in this repo contains structured instructions that guide Claude Code to generate tests consistent with project conventions — naming patterns, fixture usage, assertion style, and domain context.
-
----
-
-## 🧪 Test Coverage
-
-### API Tests
-| Endpoint | Method | Coverage |
-|----------|--------|----------|
-| `/v1/transactions` | GET, POST | Happy path, pagination, filtering |
-| `/v1/payments/capture` | POST | Success, partial capture, errors |
-| `/v1/payments/refund` | POST | Full refund, partial, invalid amount |
-| `/v1/auth/tokenize` | POST | Card tokenization, PAN masking |
-| `/v1/auth/token` | POST | Auth token generation, expiry |
-
-### UI Tests
-| Flow | Coverage |
-|------|----------|
-| Checkout - Happy Path | Card entry, form validation, success state |
-| Checkout - Error States | Declined card, network error, timeout |
-| Payment Form | Field masking, expiry validation, CVV |
-
----
-
-## 📊 CI/CD Pipeline
-
-GitHub Actions runs on every push and PR:
-
-- ✅ TypeScript compilation check
-- ✅ API test suite (parallel, 4 workers)
-- ✅ UI test suite (Chromium)
-- ✅ HTML report artifact upload
-
----
-
-## 📝 Domain Context
-
-Tests are modeled after real payment processing patterns:
-
-- **Authorization flow** — tokenize → authorize → capture
-- **Refund flow** — capture → partial/full refund
-- **Error scenarios** — declined, insufficient funds, expired card, network timeout
+`CLAUDE.md` contains structured instructions that guide AI tools to generate tests consistent with project conventions.
 
 ---
 
 ## 📄 License
 
-MIT — free to use as a portfolio reference or framework starter.
+MIT
