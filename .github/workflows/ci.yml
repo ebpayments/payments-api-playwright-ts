@@ -5,6 +5,7 @@ on:
     branches: [main, develop]
   pull_request:
     branches: [main]
+  workflow_dispatch:
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
@@ -66,18 +67,8 @@ jobs:
       - name: Install Playwright browsers
         run: npx playwright install --with-deps chromium
 
-      - name: Compile server
-        run: npx tsc --outDir dist --esModuleInterop true --module commonjs --target ES2020 mock-ui/server.ts || true
-
       - name: Start mock UI server
-        run: |
-          export API_TOKEN=${{ secrets.API_TOKEN }}
-          node -e "
-            require('dotenv').config();
-            process.env.API_TOKEN = '${{ secrets.API_TOKEN }}';
-          " || true
-          API_TOKEN=${{ secrets.API_TOKEN }} npx ts-node mock-ui/server.ts &
-          echo "Server PID: $!"
+        run: API_TOKEN=${{ secrets.API_TOKEN }} npx ts-node mock-ui/server.ts &
 
       - name: Wait for server
         run: npx wait-on http://localhost:3000 --timeout 60000 --interval 1000
