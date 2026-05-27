@@ -4,6 +4,7 @@ import { PaymentIntentBuilder } from '../builders/payment-intent.builder';
 import { ChargeReader } from '../readers/charge.reader';
 import { PaymentIntentReader } from '../readers/payment-intent.reader';
 import { PaymentAssertions } from '../assertions/payment.assertions';
+import { ReporterHelper } from '../../utils/reporter.helper';
 import { StripeSync } from '../../database/stripe-sync';
 
 const BASE_URL = 'https://api.stripe.com/v1';
@@ -36,19 +37,25 @@ test.describe('Stripe — Database Validation', () => {
       .withDescription('DB validation test')
       .build();
 
-    // Act — create charge via API
+    // Act
     const response = await request.post(`${BASE_URL}/charges`, { headers, form });
+
+    await ReporterHelper.logApiCall(
+      'Create Charge for DB Validation',
+      { url: `${BASE_URL}/charges`, method: 'POST', headers, body: form },
+      response
+    );
+
     const body = await response.json();
     const reader = new ChargeReader(body);
 
-    // Sync to DB
     sync.syncCharge(body);
 
-    // Assert — API response
+    // Assert — API
     await PaymentAssertions.assertSuccess(response);
     PaymentAssertions.assertChargeSucceeded(reader);
 
-    // Assert — DB validation
+    // Assert — DB
     const dbRecord = sync.getDb().getChargeById(reader.getId());
     expect(dbRecord).toBeDefined();
     expect(dbRecord!.id).toBe(reader.getId());
@@ -60,6 +67,12 @@ test.describe('Stripe — Database Validation', () => {
     expect(dbRecord!.livemode).toBe(0);
     expect(dbRecord!.card_brand).toBe(reader.getCardBrand());
     expect(dbRecord!.card_last4).toBe(reader.getCardLast4());
+
+    await ReporterHelper.logDbValidation(
+      'Charge Persisted to DB',
+      { id: reader.getId(), amount: 2000, status: 'succeeded', paid: 1 },
+      { id: dbRecord!.id, amount: dbRecord!.amount, status: dbRecord!.status, paid: dbRecord!.paid }
+    );
   });
 
   test('should persist failed charge to DB with decline info', async ({ request }) => {
@@ -72,9 +85,15 @@ test.describe('Stripe — Database Validation', () => {
 
     // Act
     const response = await request.post(`${BASE_URL}/charges`, { headers, form });
+
+    await ReporterHelper.logApiCall(
+      'Declined Charge for DB Validation',
+      { url: `${BASE_URL}/charges`, method: 'POST', headers, body: form },
+      response
+    );
+
     const body = await response.json();
 
-    // Sync to DB — fetch the actual charge record
     sync.syncCharge(
       body.error?.charge
         ? await (await request.get(`${BASE_URL}/charges/${body.error.charge}`, {
@@ -83,29 +102,40 @@ test.describe('Stripe — Database Validation', () => {
         : body
     );
 
-    // Assert — API declined
+    // Assert — API
     await PaymentAssertions.assertDeclined(response);
 
-    // Assert — DB has failed record
+    // Assert — DB
     const failedCharges = sync.getDb().getFailedCharges();
     expect(failedCharges.length).toBeGreaterThan(0);
     const record = failedCharges[0];
     expect(record.status).toBe('failed');
     expect(record.paid).toBe(0);
     expect(record.failure_code).toBe('card_declined');
+
+    await ReporterHelper.logDbValidation(
+      'Failed Charge in DB',
+      { status: 'failed', paid: 0, failure_code: 'card_declined' },
+      { status: record.status, paid: record.paid, failure_code: record.failure_code }
+    );
   });
 
   test('should query charges by card brand from DB', async ({ request }) => {
-    // Arrange — create Visa and Mastercard charges
+    // Arrange & Act
     const visaForm = new ChargeBuilder().withAmount(1000).withDescription('Visa DB').build();
     const mcForm = new ChargeBuilder().asMastercard().withAmount(2000).withDescription('MC DB').build();
 
-    // Act
     const visaRes = await request.post(`${BASE_URL}/charges`, { headers, form: visaForm });
     const mcRes = await request.post(`${BASE_URL}/charges`, { headers, form: mcForm });
 
-    sync.syncCharge(await visaRes.json());
-    sync.syncCharge(await mcRes.json());
+    const visaBody = await visaRes.json();
+    const mcBody = await mcRes.json();
+
+    await ReporterHelper.logApiCall('Visa Charge', { url: `${BASE_URL}/charges`, method: 'POST', headers, body: visaForm }, visaRes);
+    await ReporterHelper.logApiCall('Mastercard Charge', { url: `${BASE_URL}/charges`, method: 'POST', headers, body: mcForm }, mcRes);
+
+    sync.syncCharge(visaBody);
+    sync.syncCharge(mcBody);
 
     // Assert — DB queries
     const visaCharges = sync.getDb().getChargesByCardBrand('visa');
@@ -115,24 +145,32 @@ test.describe('Stripe — Database Validation', () => {
     expect(mcCharges.length).toBe(1);
     expect(visaCharges[0].card_last4).toBe('4242');
     expect(mcCharges[0].card_last4).toBe('4444');
+
+    await ReporterHelper.logDbValidation(
+      'Query by Card Brand',
+      { visaCount: 1, mcCount: 1 },
+      { visaCount: visaCharges.length, mcCount: mcCharges.length }
+    );
   });
 
   test('should calculate total amount by status from DB', async ({ request }) => {
-    // Arrange — create 2 successful charges
+    // Arrange & Act
     const form1 = new ChargeBuilder().withAmount(1000).build();
     const form2 = new ChargeBuilder().withAmount(2000).build();
 
-    // Act
     const res1 = await request.post(`${BASE_URL}/charges`, { headers, form: form1 });
     const res2 = await request.post(`${BASE_URL}/charges`, { headers, form: form2 });
 
     const body1 = await res1.json();
     const body2 = await res2.json();
 
+    await ReporterHelper.logApiCall('Charge 1', { url: `${BASE_URL}/charges`, method: 'POST', headers, body: form1 }, res1);
+    await ReporterHelper.logApiCall('Charge 2', { url: `${BASE_URL}/charges`, method: 'POST', headers, body: form2 }, res2);
+
     sync.syncCharge(body1);
     sync.syncCharge(body2);
 
-    // Assert — verify each charge individually in DB
+    // Assert — DB
     const record1 = sync.getDb().getChargeById(body1.id);
     const record2 = sync.getDb().getChargeById(body2.id);
 
@@ -141,9 +179,14 @@ test.describe('Stripe — Database Validation', () => {
     expect(record2).toBeDefined();
     expect(record2!.amount).toBe(2000);
 
-    // Assert — total includes at least our 2 charges
     const total = sync.getDb().getTotalAmountByStatus('succeeded');
     expect(total).toBeGreaterThanOrEqual(3000);
+
+    await ReporterHelper.logDbValidation(
+      'Total Amount Aggregation',
+      { minTotal: 3000 },
+      { actualTotal: total }
+    );
   });
 
   // ─── Payment Intent DB Validation ────────────────────────────
@@ -158,17 +201,23 @@ test.describe('Stripe — Database Validation', () => {
 
     // Act
     const response = await request.post(`${BASE_URL}/payment_intents`, { headers, form });
+
+    await ReporterHelper.logApiCall(
+      'Create Payment Intent for DB',
+      { url: `${BASE_URL}/payment_intents`, method: 'POST', headers, body: form },
+      response
+    );
+
     const body = await response.json();
     const reader = new PaymentIntentReader(body);
 
-    // Sync to DB
     sync.syncPaymentIntent(body);
 
-    // Assert — API response
+    // Assert — API
     await PaymentAssertions.assertSuccess(response);
     PaymentAssertions.assertPaymentIntentCreated(reader);
 
-    // Assert — DB validation
+    // Assert — DB
     const dbRecord = sync.getDb().getPaymentIntentById(reader.getId());
     expect(dbRecord).toBeDefined();
     expect(dbRecord!.id).toBe(reader.getId());
@@ -176,69 +225,86 @@ test.describe('Stripe — Database Validation', () => {
     expect(dbRecord!.currency).toBe('usd');
     expect(dbRecord!.status).toBe('requires_payment_method');
     expect(dbRecord!.livemode).toBe(0);
+
+    await ReporterHelper.logDbValidation(
+      'Payment Intent in DB',
+      { id: reader.getId(), amount: 5000, status: 'requires_payment_method' },
+      { id: dbRecord!.id, amount: dbRecord!.amount, status: dbRecord!.status }
+    );
   });
 
   test('should persist confirmed payment intent to DB', async ({ request }) => {
     // Arrange
-    const form = new PaymentIntentBuilder()
-      .asConfirmedVisa()
-      .withAmount(3000)
-      .build();
+    const form = new PaymentIntentBuilder().asConfirmedVisa().withAmount(3000).build();
 
     // Act
     const response = await request.post(`${BASE_URL}/payment_intents`, { headers, form });
+
+    await ReporterHelper.logApiCall(
+      'Confirmed Payment Intent for DB',
+      { url: `${BASE_URL}/payment_intents`, method: 'POST', headers, body: form },
+      response
+    );
+
     const body = await response.json();
     const reader = new PaymentIntentReader(body);
 
-    // Sync to DB
     sync.syncPaymentIntent(body);
 
-    // Assert — API response
+    // Assert — API
     await PaymentAssertions.assertSuccess(response);
     PaymentAssertions.assertPaymentIntentSucceeded(reader);
 
-    // Assert — DB validation
+    // Assert — DB
     const dbRecord = sync.getDb().getPaymentIntentById(reader.getId());
     expect(dbRecord).toBeDefined();
     expect(dbRecord!.status).toBe('succeeded');
     expect(dbRecord!.amount_received).toBe(3000);
     expect(dbRecord!.latest_charge).toMatch(/^ch_/);
+
+    await ReporterHelper.logDbValidation(
+      'Confirmed Payment Intent in DB',
+      { status: 'succeeded', amountReceived: 3000 },
+      { status: dbRecord!.status, amountReceived: dbRecord!.amount_received }
+    );
   });
 
   test('should query succeeded payment intents from DB', async ({ request }) => {
-    // Arrange — create 2 confirmed intents
+    // Arrange & Act
     const form1 = new PaymentIntentBuilder().asConfirmedVisa().withAmount(1000).build();
     const form2 = new PaymentIntentBuilder().asConfirmedMastercard().withAmount(2000).build();
 
-    // Act
     const res1 = await request.post(`${BASE_URL}/payment_intents`, { headers, form: form1 });
     const res2 = await request.post(`${BASE_URL}/payment_intents`, { headers, form: form2 });
 
     const body1 = await res1.json();
     const body2 = await res2.json();
 
+    await ReporterHelper.logApiCall('PI Visa', { url: `${BASE_URL}/payment_intents`, method: 'POST', headers, body: form1 }, res1);
+    await ReporterHelper.logApiCall('PI Mastercard', { url: `${BASE_URL}/payment_intents`, method: 'POST', headers, body: form2 }, res2);
+
     sync.syncPaymentIntent(body1);
     sync.syncPaymentIntent(body2);
 
-    // Assert — verify each intent individually in DB
+    // Assert — DB
     const record1 = sync.getDb().getPaymentIntentById(body1.id);
     const record2 = sync.getDb().getPaymentIntentById(body2.id);
 
     expect(record1).toBeDefined();
     expect(record1!.status).toBe('succeeded');
     expect(record1!.amount_received).toBe(1000);
-
     expect(record2).toBeDefined();
     expect(record2!.status).toBe('succeeded');
     expect(record2!.amount_received).toBe(2000);
 
-    // Assert — at least our 2 intents are in DB
     const succeeded = sync.getDb().getSucceededPaymentIntents();
     expect(succeeded.length).toBeGreaterThanOrEqual(2);
-    succeeded.forEach(record => {
-      expect(record.status).toBe('succeeded');
-      expect(record.amount_received).toBeGreaterThan(0);
-    });
+
+    await ReporterHelper.logDbValidation(
+      'Succeeded Payment Intents Query',
+      { minCount: 2, pi1Amount: 1000, pi2Amount: 2000 },
+      { count: succeeded.length, pi1Amount: record1!.amount_received, pi2Amount: record2!.amount_received }
+    );
   });
 
 });

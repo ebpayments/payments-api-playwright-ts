@@ -1,6 +1,7 @@
 import { test } from '@playwright/test';
 import { ChargeReader, ChargeErrorReader } from '../readers/charge.reader';
 import { PaymentAssertions } from '../assertions/payment.assertions';
+import { ReporterHelper } from '../../utils/reporter.helper';
 
 const BASE_URL = 'https://api.stripe.com/v1';
 const SECRET_KEY = process.env.API_TOKEN!;
@@ -11,42 +12,15 @@ const headers = {
 };
 
 const TOKEN_SCENARIOS = [
-  {
-    id: 'visa',
-    token: 'tok_visa',
-    expectedBrand: 'visa',
-    expectedLast4: '4242',
-  },
-  {
-    id: 'mastercard',
-    token: 'tok_mastercard',
-    expectedBrand: 'mastercard',
-    expectedLast4: '4444',
-  },
-  {
-    id: 'amex',
-    token: 'tok_amex',
-    expectedBrand: 'amex',
-    expectedLast4: '8431',
-  },
+  { id: 'visa', token: 'tok_visa', expectedBrand: 'visa', expectedLast4: '4242' },
+  { id: 'mastercard', token: 'tok_mastercard', expectedBrand: 'mastercard', expectedLast4: '4444' },
+  { id: 'amex', token: 'tok_amex', expectedBrand: 'amex', expectedLast4: '8431' },
 ];
 
 const DECLINE_SCENARIOS = [
-  {
-    id: 'generic_decline',
-    token: 'tok_chargeDeclined',
-    expectedCode: 'card_declined',
-  },
-  {
-    id: 'insufficient_funds',
-    token: 'tok_chargeDeclinedInsufficientFunds',
-    expectedCode: 'card_declined',
-  },
-  {
-    id: 'expired_card',
-    token: 'tok_chargeDeclinedExpiredCard',
-    expectedCode: 'expired_card',
-  },
+  { id: 'generic_decline', token: 'tok_chargeDeclined', expectedCode: 'card_declined' },
+  { id: 'insufficient_funds', token: 'tok_chargeDeclinedInsufficientFunds', expectedCode: 'card_declined' },
+  { id: 'expired_card', token: 'tok_chargeDeclinedExpiredCard', expectedCode: 'expired_card' },
 ];
 
 test.describe('Stripe — Tokenization', () => {
@@ -65,8 +39,15 @@ test.describe('Stripe — Tokenization', () => {
 
       // Act
       const response = await request.post(`${BASE_URL}/charges`, { headers, form });
+
+      // Log
+      await ReporterHelper.logApiCall(
+        `Tokenize & Charge — ${scenario.id}`,
+        { url: `${BASE_URL}/charges`, method: 'POST', headers, body: form },
+        response
+      );
+
       const body = await response.json();
-      console.log(body);
       const reader = new ChargeReader(body);
 
       // Assert
@@ -75,6 +56,13 @@ test.describe('Stripe — Tokenization', () => {
       PaymentAssertions.assertChargeCardBrand(reader, scenario.expectedBrand);
       PaymentAssertions.assertChargeCardLast4(reader, scenario.expectedLast4);
       PaymentAssertions.assertNoPANInResponse(body, scenario.token);
+
+      await ReporterHelper.logAssertion('Tokenization Verified', {
+        token: scenario.token,
+        cardBrand: reader.getCardBrand(),
+        last4: reader.getCardLast4(),
+        panExposed: false,
+      });
     });
   }
 
@@ -92,13 +80,26 @@ test.describe('Stripe — Tokenization', () => {
 
       // Act
       const response = await request.post(`${BASE_URL}/charges`, { headers, form });
+
+      // Log
+      await ReporterHelper.logApiCall(
+        `Decline — ${scenario.id}`,
+        { url: `${BASE_URL}/charges`, method: 'POST', headers, body: form },
+        response
+      );
+
       const body = await response.json();
-      console.log(body);
       const errorReader = new ChargeErrorReader(body);
 
       // Assert
       await PaymentAssertions.assertDeclined(response);
       PaymentAssertions.assertChargeDeclineCode(errorReader, scenario.expectedCode);
+
+      await ReporterHelper.logAssertion('Decline Verified', {
+        errorCode: errorReader.getCode(),
+        declineCode: errorReader.getDeclineCode(),
+        message: errorReader.getMessage(),
+      });
     });
   }
 
@@ -106,19 +107,28 @@ test.describe('Stripe — Tokenization', () => {
 
   test('should never expose raw card number in response', async ({ request }) => {
     // Arrange
-    const form = {
-      amount: '1000',
-      currency: 'usd',
-      source: 'tok_visa',
-    };
+    const form = { amount: '1000', currency: 'usd', source: 'tok_visa' };
 
     // Act
     const response = await request.post(`${BASE_URL}/charges`, { headers, form });
+
+    // Log
+    await ReporterHelper.logApiCall(
+      'PAN Security Check',
+      { url: `${BASE_URL}/charges`, method: 'POST', headers, body: form },
+      response
+    );
+
     const body = await response.json();
 
-    // Assert — raw PAN must never appear
+    // Assert
     await PaymentAssertions.assertSuccess(response);
     PaymentAssertions.assertNoPANInResponse(body, '4242424242424242');
+
+    await ReporterHelper.logAssertion('PAN Security', {
+      panExposed: false,
+      message: 'Raw card number not found in response',
+    });
   });
 
   // ─── Auth ────────────────────────────────────────────────────
@@ -132,6 +142,13 @@ test.describe('Stripe — Tokenization', () => {
       },
       form: { amount: '1000', currency: 'usd', source: 'tok_visa' },
     });
+
+    // Log
+    await ReporterHelper.logApiCall(
+      'Unauthorized Request',
+      { url: `${BASE_URL}/charges`, method: 'POST', headers: { Authorization: 'Bearer sk_test_invalid' } },
+      response
+    );
 
     // Assert
     await PaymentAssertions.assertUnauthorized(response);

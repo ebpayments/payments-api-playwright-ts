@@ -19,7 +19,6 @@
     "@types/node": "^20.0.0",
     "allure-commandline": "^2.27.0",
     "allure-playwright": "^3.0.0",
-    "better-sqlite3": "^9.0.0",
     "dotenv": "^16.0.0",
     "ts-node": "^10.9.2",
     "typescript": "^5.4.0",
@@ -27,6 +26,7 @@
   },
   "dependencies": {
     "@types/express": "^5.0.6",
+    "better-sqlite3": "^12.10.0",
     "express": "^5.2.1",
     "stripe": "^22.1.1"
   }
