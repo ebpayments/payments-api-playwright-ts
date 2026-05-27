@@ -10,9 +10,45 @@ env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
-  test:
+  api-tests:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: TypeScript check
+        run: npx tsc --noEmit
+
+      - name: Run API tests
+        run: npm run test:api
+        env:
+          CI: true
+          BASE_URL: ${{ secrets.BASE_URL }}
+          API_TOKEN: ${{ secrets.API_TOKEN }}
+          MERCHANT_ID: ${{ secrets.MERCHANT_ID }}
+
+      - name: Upload API test report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: api-playwright-report
+          path: playwright-report/
+          retention-days: 30
+
+  ui-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
 
     steps:
       - name: Checkout
@@ -30,34 +66,32 @@ jobs:
       - name: Install Playwright browsers
         run: npx playwright install --with-deps chromium
 
-      - name: TypeScript check
-        run: npx tsc --noEmit
-
-      - name: Run API tests
-        run: npm run test:api
-        env:
-          CI: true
-          BASE_URL: ${{ secrets.BASE_URL }}
-          API_TOKEN: ${{ secrets.API_TOKEN }}
-          MERCHANT_ID: ${{ secrets.MERCHANT_ID }}
+      - name: Compile server
+        run: npx tsc --outDir dist --esModuleInterop true --module commonjs --target ES2020 mock-ui/server.ts || true
 
       - name: Start mock UI server
-        run: npx ts-node mock-ui/server.ts &
-        env:
-          API_TOKEN: ${{ secrets.API_TOKEN }}
+        run: |
+          export API_TOKEN=${{ secrets.API_TOKEN }}
+          node -e "
+            require('dotenv').config();
+            process.env.API_TOKEN = '${{ secrets.API_TOKEN }}';
+          " || true
+          API_TOKEN=${{ secrets.API_TOKEN }} npx ts-node mock-ui/server.ts &
+          echo "Server PID: $!"
 
-      - name: Wait for server to be ready
-        run: npx wait-on http://localhost:3000 --timeout 30000
+      - name: Wait for server
+        run: npx wait-on http://localhost:3000 --timeout 60000 --interval 1000
 
       - name: Run UI tests
         run: npm run test:ui
         env:
           CI: true
+          API_TOKEN: ${{ secrets.API_TOKEN }}
 
-      - name: Upload test report
+      - name: Upload UI test report
         uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: playwright-report
+          name: ui-playwright-report
           path: playwright-report/
           retention-days: 30
