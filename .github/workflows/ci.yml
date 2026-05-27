@@ -6,6 +6,9 @@ on:
   pull_request:
     branches: [main]
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 jobs:
   test:
     runs-on: ubuntu-latest
@@ -18,7 +21,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: npm
 
       - name: Install dependencies
@@ -34,15 +37,22 @@ jobs:
         run: npm run test:api
         env:
           CI: true
-          BASE_URL: ${{ secrets.BASE_URL || 'https://sandbox.payments-demo.local' }}
-          API_TOKEN: ${{ secrets.API_TOKEN || 'sandbox_test_token' }}
-          MERCHANT_ID: ${{ secrets.MERCHANT_ID || 'merchant_test_001' }}
+          BASE_URL: ${{ secrets.BASE_URL }}
+          API_TOKEN: ${{ secrets.API_TOKEN }}
+          MERCHANT_ID: ${{ secrets.MERCHANT_ID }}
+
+      - name: Start mock UI server
+        run: npx ts-node mock-ui/server.ts &
+        env:
+          API_TOKEN: ${{ secrets.API_TOKEN }}
+
+      - name: Wait for server to be ready
+        run: npx wait-on http://localhost:3000 --timeout 30000
 
       - name: Run UI tests
         run: npm run test:ui
         env:
           CI: true
-          BASE_URL: ${{ secrets.BASE_URL || 'https://sandbox.payments-demo.local' }}
 
       - name: Upload test report
         uses: actions/upload-artifact@v4

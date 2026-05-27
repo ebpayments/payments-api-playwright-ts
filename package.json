@@ -22,7 +22,8 @@
     "better-sqlite3": "^9.0.0",
     "dotenv": "^16.0.0",
     "ts-node": "^10.9.2",
-    "typescript": "^5.4.0"
+    "typescript": "^5.4.0",
+    "wait-on": "^9.0.10"
   },
   "dependencies": {
     "@types/express": "^5.0.6",
