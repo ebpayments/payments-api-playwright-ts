@@ -1,0 +1,60 @@
+{
+  "validCharges": [
+    {
+      "id": "visa_success",
+      "amount": 2000,
+      "currency": "usd",
+      "source": "tok_visa",
+      "description": "Test charge - Visa",
+      "expectedStatus": "succeeded",
+      "expectedPaid": true
+    },
+    {
+      "id": "mastercard_success",
+      "amount": 5000,
+      "currency": "usd",
+      "source": "tok_mastercard",
+      "description": "Test charge - Mastercard",
+      "expectedStatus": "succeeded",
+      "expectedPaid": true
+    },
+    {
+      "id": "amex_success",
+      "amount": 3000,
+      "currency": "usd",
+      "source": "tok_amex",
+      "description": "Test charge - Amex",
+      "expectedStatus": "succeeded",
+      "expectedPaid": true
+    }
+  ],
+  "declinedCharges": [
+    {
+      "id": "generic_decline",
+      "amount": 2000,
+      "currency": "usd",
+      "source": "tok_chargeDeclined",
+      "description": "Test charge - Declined",
+      "expectedErrorCode": "card_declined",
+      "expectedDeclineCode": "generic_decline"
+    },
+    {
+      "id": "insufficient_funds",
+      "amount": 2000,
+      "currency": "usd",
+      "source": "tok_chargeDeclinedInsufficientFunds",
+      "description": "Test charge - Insufficient funds",
+      "expectedErrorCode": "card_declined",
+      "expectedDeclineCode": "insufficient_funds"
+    },
+    {
+      "id": "expired_card",
+      "amount": 2000,
+      "currency": "usd",
+      "source": "tok_chargeDeclinedExpiredCard",
+      "description": "Test charge - Expired card",
+      "expectedErrorCode": "expired_card",
+      "expectedDeclineCode": "expired_card"
+    }
+  ]
+}

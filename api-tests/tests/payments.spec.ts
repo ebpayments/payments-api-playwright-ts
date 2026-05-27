@@ -1,4 +1,8 @@
-import { test, expect } from '@playwright/test';
+import { test } from '@playwright/test';
+import { PaymentIntentBuilder } from '../builders/payment-intent.builder';
+import { PaymentIntentReader, PaymentIntentErrorReader } from '../readers/payment-intent.reader';
+import { PaymentAssertions } from '../assertions/payment.assertions';
+import paymentIntentsData from '../data/payment-intents.json';
 
 const BASE_URL = 'https://api.stripe.com/v1';
 const SECRET_KEY = process.env.API_TOKEN!;
@@ -10,122 +14,139 @@ const headers = {
 
 test.describe('Stripe — Payment Intents', () => {
 
-  test('should create a payment intent successfully', async ({ request }) => {
-    // Arrange & Act
-    const response = await request.post(`${BASE_URL}/payment_intents`, {
-      headers,
-      form: {
-        amount: '2000',
-        currency: 'usd',
-        'payment_method_types[]': 'card',
-      },
+  // ─── Create — JSON data driven ───────────────────────────────
+
+  for (const intent of paymentIntentsData.validIntents) {
+    test(`should create payment intent — ${intent.id}`, async ({ request }) => {
+      // Arrange
+      const form = new PaymentIntentBuilder()
+        .withAmount(intent.amount)
+        .withCurrency(intent.currency)
+        .withDescription(intent.description)
+        .build();
+
+      // Act
+      const response = await request.post(`${BASE_URL}/payment_intents`, { headers, form });
+      const body = await response.json();
+      console.log(body);
+      const reader = new PaymentIntentReader(body);
+
+      // Assert
+      await PaymentAssertions.assertSuccess(response);
+      PaymentAssertions.assertPaymentIntentCreated(reader);
+      PaymentAssertions.assertPaymentIntentAmount(reader, intent.amount);
+      PaymentAssertions.assertPaymentIntentCurrency(reader, intent.currency);
+      PaymentAssertions.assertPaymentIntentStatus(reader, intent.expectedStatus);
     });
+  }
 
-    // Debug
-    const body = await response.json();
-    console.log(JSON.stringify(body, null, 2));
+  // ─── Confirm — JSON data driven ──────────────────────────────
 
-    // Assert
-    expect(response.status()).toBe(200);
-    expect(body.id).toMatch(/^pi_/);
-    expect(body.status).toBe('requires_payment_method');
-    expect(body.amount).toBe(2000);
-    expect(body.currency).toBe('usd');
-  });
+  for (const intent of paymentIntentsData.confirmedIntents) {
+    test(`should confirm payment intent — ${intent.id}`, async ({ request }) => {
+      // Arrange
+      const form = new PaymentIntentBuilder()
+        .withAmount(intent.amount)
+        .withCurrency(intent.currency)
+        .withPaymentMethod(intent.paymentMethod)
+        .withConfirm()
+        .build();
 
-  test('should confirm payment intent with test card', async ({ request }) => {
-    // Arrange — create intent first
-    const createResponse = await request.post(`${BASE_URL}/payment_intents`, {
-      headers,
-      form: {
-        amount: '5000',
-        currency: 'usd',
-        'payment_method_types[]': 'card',
-        payment_method: 'pm_card_visa',
-        confirm: 'true',
-      },
+      // Act
+      const response = await request.post(`${BASE_URL}/payment_intents`, { headers, form });
+      const body = await response.json();
+      console.log(body);
+      const reader = new PaymentIntentReader(body);
+
+      // Assert
+      await PaymentAssertions.assertSuccess(response);
+      PaymentAssertions.assertPaymentIntentSucceeded(reader);
+      PaymentAssertions.assertPaymentIntentAmount(reader, intent.amount);
     });
+  }
 
-    // Debug
-    const body = await createResponse.json();
-    console.log(JSON.stringify(body, null, 2));
+  // ─── Validation Errors — JSON data driven ────────────────────
 
-    // Assert
-    expect(createResponse.status()).toBe(200);
-    expect(body.id).toMatch(/^pi_/);
-    expect(body.status).toBe('succeeded');
-    expect(body.amount).toBe(5000);
-  });
+  for (const intent of paymentIntentsData.invalidIntents) {
+    test(`should return error for invalid intent — ${intent.id}`, async ({ request }) => {
+      // Arrange
+      let builder = new PaymentIntentBuilder();
+
+      if ('amount' in intent) builder = builder.withAmount(intent.amount!);
+      else builder = builder.withoutAmount();
+
+      if ('currency' in intent) builder = builder.withCurrency(intent.currency!);
+      else builder = builder.withoutCurrency();
+
+      const form = builder.build();
+
+      // Act
+      const response = await request.post(`${BASE_URL}/payment_intents`, { headers, form });
+      const body = await response.json();
+      console.log(body);
+      const errorReader = new PaymentIntentErrorReader(body);
+
+      // Assert
+      await PaymentAssertions.assertBadRequest(response);
+      PaymentAssertions.assertMissingParam(errorReader, intent.expectedErrorParam!);
+    });
+  }
+
+  // ─── Retrieve ────────────────────────────────────────────────
 
   test('should retrieve existing payment intent', async ({ request }) => {
-    // Arrange — create one first
-    const createRes = await request.post(`${BASE_URL}/payment_intents`, {
-      headers,
-      form: {
-        amount: '1000',
-        currency: 'usd',
-        'payment_method_types[]': 'card',
-      },
-    });
-    const created = await createRes.json();
+    // Arrange — create first
+    const form = new PaymentIntentBuilder()
+      .withAmount(1000)
+      .withDescription('Retrieve test')
+      .build();
 
-    // Act — retrieve it
-    const getRes = await request.get(`${BASE_URL}/payment_intents/${created.id}`, {
+    const createRes = await request.post(`${BASE_URL}/payment_intents`, { headers, form });
+    const created = await createRes.json();
+    const createdReader = new PaymentIntentReader(created);
+
+    // Act
+    const getRes = await request.get(`${BASE_URL}/payment_intents/${createdReader.getId()}`, {
       headers: { Authorization: `Bearer ${SECRET_KEY}` },
     });
-
-    // Assert
-    expect(getRes.status()).toBe(200);
     const body = await getRes.json();
-    expect(body.id).toBe(created.id);
-    expect(body.amount).toBe(1000);
-  });
-
-  test('should return 401 with invalid API key', async ({ request }) => {
-    // Act
-    const response = await request.post(`${BASE_URL}/payment_intents`, {
-      headers: {
-        Authorization: 'Bearer sk_test_invalid_key',
-        'Content-Type': 'application/x-www-form-urlencoded',
-      },
-      form: {
-        amount: '1000',
-        currency: 'usd',
-        'payment_method_types[]': 'card',
-      },
-    });
+    console.log(body);
+    const reader = new PaymentIntentReader(body);
 
     // Assert
-    expect(response.status()).toBe(401);
+    await PaymentAssertions.assertSuccess(getRes);
+    PaymentAssertions.assertPaymentIntentAmount(reader, 1000);
   });
 
-  test('should return 400 when amount is missing', async ({ request }) => {
-    // Act
-    const response = await request.post(`${BASE_URL}/payment_intents`, {
-      headers,
-      form: {
-        currency: 'usd',
-        'payment_method_types[]': 'card',
-      },
-    });
-
-    // Assert
-    expect(response.status()).toBe(400);
-    const body = await response.json();
-    expect(body.error.param).toBe('amount');
-  });
+  // ─── List ────────────────────────────────────────────────────
 
   test('should list payment intents', async ({ request }) => {
     // Act
     const response = await request.get(`${BASE_URL}/payment_intents?limit=5`, {
       headers: { Authorization: `Bearer ${SECRET_KEY}` },
     });
+    const body = await response.json();
 
     // Assert
-    expect(response.status()).toBe(200);
-    const body = await response.json();
-    expect(body.object).toBe('list');
-    expect(body.data).toBeInstanceOf(Array);
+    await PaymentAssertions.assertSuccess(response);
+    test.expect(body.object).toBe('list');
+    test.expect(body.data).toBeInstanceOf(Array);
+  });
+
+  // ─── Auth ────────────────────────────────────────────────────
+
+  test('should return 401 with invalid API key', async ({ request }) => {
+    // Act
+    const response = await request.post(`${BASE_URL}/payment_intents`, {
+      headers: {
+        Authorization: 'Bearer sk_test_invalid',
+        'Content-Type': 'application/x-www-form-urlencoded',
+      },
+      form: new PaymentIntentBuilder().build(),
+    });
+
+    // Assert
+    await PaymentAssertions.assertUnauthorized(response);
   });
 
 });

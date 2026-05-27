@@ -1,0 +1,241 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Payments Checkout</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: 'Segoe UI', sans-serif;
+      background: #f0f4f8;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      min-height: 100vh;
+    }
+
+    .checkout-container {
+      background: white;
+      padding: 40px;
+      border-radius: 12px;
+      box-shadow: 0 4px 24px rgba(0,0,0,0.1);
+      width: 100%;
+      max-width: 480px;
+    }
+
+    .checkout-header { margin-bottom: 32px; }
+    .checkout-header h1 { font-size: 24px; color: #1a1f36; margin-bottom: 8px; }
+    .amount-display { font-size: 32px; font-weight: 700; color: #635bff; }
+
+    .form-group { margin-bottom: 20px; }
+
+    label {
+      display: block;
+      font-size: 14px;
+      font-weight: 500;
+      color: #3c4257;
+      margin-bottom: 8px;
+    }
+
+    input {
+      width: 100%;
+      padding: 12px 16px;
+      border: 1.5px solid #e3e8ef;
+      border-radius: 8px;
+      font-size: 16px;
+      color: #1a1f36;
+      transition: border-color 0.2s;
+      outline: none;
+    }
+
+    input:focus { border-color: #635bff; }
+    input.error { border-color: #df1b41; }
+
+    .card-row { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+
+    .field-error {
+      color: #df1b41;
+      font-size: 12px;
+      margin-top: 4px;
+      display: none;
+    }
+    .field-error.visible { display: block; }
+
+    .pay-button {
+      width: 100%;
+      padding: 14px;
+      background: #635bff;
+      color: white;
+      border: none;
+      border-radius: 8px;
+      font-size: 16px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.2s;
+      margin-top: 8px;
+    }
+
+    .pay-button:hover:not(:disabled) { background: #4f46e5; }
+    .pay-button:disabled { background: #c0bdf8; cursor: not-allowed; }
+
+    .payment-success {
+      display: none;
+      background: #ecfdf5;
+      border: 1.5px solid #10b981;
+      border-radius: 8px;
+      padding: 16px;
+      margin-top: 20px;
+      color: #065f46;
+      font-weight: 500;
+    }
+
+    .payment-error {
+      display: none;
+      background: #fef2f2;
+      border: 1.5px solid #ef4444;
+      border-radius: 8px;
+      padding: 16px;
+      margin-top: 20px;
+      color: #991b1b;
+      font-weight: 500;
+    }
+
+    .confirmation-number { font-weight: 700; font-family: monospace; }
+  </style>
+</head>
+<body>
+  <div class="checkout-container">
+    <div class="checkout-header">
+      <h1>Complete Payment</h1>
+      <div class="amount-display" data-testid="amount-display">$20.00</div>
+    </div>
+
+    <div class="form-group">
+      <label for="cardHolder">Card Holder</label>
+      <input type="text" id="cardHolder" aria-label="Card Holder" placeholder="John Doe" />
+    </div>
+
+    <div class="form-group">
+      <label for="cardNumber">Card Number</label>
+      <input type="text" id="cardNumber" aria-label="Card Number" placeholder="1234 5678 9012 3456" maxlength="19" />
+      <div class="field-error" id="cardNumber-error" data-testid="card-number-error"></div>
+    </div>
+
+    <div class="card-row">
+      <div class="form-group">
+        <label for="expiryDate">Expiry Date</label>
+        <input type="text" id="expiryDate" aria-label="Expiry Date" placeholder="MM/YY" maxlength="5" />
+      </div>
+      <div class="form-group">
+        <label for="cvv">CVV</label>
+        <input type="password" id="cvv" aria-label="CVV" placeholder="•••" maxlength="4" />
+      </div>
+    </div>
+
+    <!-- Hidden token field for Playwright tests -->
+    <input type="hidden" id="stripeToken" data-testid="stripe-token" value="" />
+
+    <button class="pay-button" id="payButton" data-testid="pay-button" disabled>
+      Pay Now
+    </button>
+
+    <div class="payment-success" id="paymentSuccess" data-testid="payment-success">
+      ✅ Payment successful!
+      Confirmation: <span class="confirmation-number" data-testid="confirmation-number"></span>
+    </div>
+
+    <div class="payment-error" id="paymentError" data-testid="payment-error"></div>
+  </div>
+
+  <script>
+    const cardNumber = document.getElementById('cardNumber');
+    const cardHolder = document.getElementById('cardHolder');
+    const expiryDate = document.getElementById('expiryDate');
+    const cvv = document.getElementById('cvv');
+    const stripeToken = document.getElementById('stripeToken');
+    const payButton = document.getElementById('payButton');
+    const paymentSuccess = document.getElementById('paymentSuccess');
+    const paymentError = document.getElementById('paymentError');
+
+    // Card number formatting
+    cardNumber.addEventListener('input', (e) => {
+      let value = e.target.value.replace(/\D/g, '').substring(0, 16);
+      e.target.value = value.replace(/(.{4})/g, '$1 ').trim();
+      validateForm();
+    });
+
+    // Expiry formatting
+    expiryDate.addEventListener('input', (e) => {
+      let value = e.target.value.replace(/\D/g, '').substring(0, 4);
+      if (value.length >= 2) value = value.substring(0, 2) + '/' + value.substring(2);
+      e.target.value = value;
+      validateForm();
+    });
+
+    cvv.addEventListener('input', validateForm);
+    cardHolder.addEventListener('input', validateForm);
+
+    // Also validate when token is set programmatically (for Playwright)
+    stripeToken.addEventListener('change', validateForm);
+
+    function validateForm() {
+      const cardNum = cardNumber.value.replace(/\s/g, '');
+      const exp = expiryDate.value;
+      const cvvVal = cvv.value;
+      const holder = cardHolder.value;
+      const token = stripeToken.value;
+
+      // Card number error
+      const cardNumError = document.getElementById('cardNumber-error');
+      if (cardNum.length > 0 && cardNum.length < 16) {
+        cardNumber.classList.add('error');
+        cardNumError.textContent = 'Card number must be 16 digits';
+        cardNumError.classList.add('visible');
+      } else {
+        cardNumber.classList.remove('error');
+        cardNumError.classList.remove('visible');
+      }
+
+      // Enable button if token is set (Playwright mode) OR all fields filled
+      const tokenMode = token.length > 0 && holder.length > 0;
+      const manualMode = cardNum.length === 16 && exp.length === 5 && cvvVal.length >= 3 && holder.length > 0;
+      payButton.disabled = !(tokenMode || manualMode);
+    }
+
+    payButton.addEventListener('click', async () => {
+      payButton.disabled = true;
+      paymentSuccess.style.display = 'none';
+      paymentError.style.display = 'none';
+
+      const token = stripeToken.value;
+
+      try {
+        const response = await fetch('/api/pay', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ token, amount: 2000 }),
+        });
+
+        const result = await response.json();
+
+        if (result.success) {
+          paymentSuccess.style.display = 'block';
+          document.querySelector('[data-testid="confirmation-number"]').textContent = result.chargeId;
+        } else {
+          showError(result.error);
+        }
+      } catch (err) {
+        showError('Network error. Please try again.');
+      }
+    });
+
+    function showError(message) {
+      paymentError.style.display = 'block';
+      paymentError.textContent = '❌ ' + message;
+      payButton.disabled = false;
+    }
+  </script>
+</body>
+</html>

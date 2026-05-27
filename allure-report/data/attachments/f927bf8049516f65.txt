@@ -1,0 +1,10 @@
+{
+  error: {
+    code: 'parameter_missing',
+    doc_url: 'https://stripe.com/docs/error-codes/parameter-missing',
+    message: 'Missing required param: amount.',
+    param: 'amount',
+    request_log_url: 'https://dashboard.stripe.com/acct_1TbWWTDFCgWUC4tp/test/workbench/logs?object=req_hV8w3GQn3o7DCj',
+    type: 'invalid_request_error'
+  }
+}

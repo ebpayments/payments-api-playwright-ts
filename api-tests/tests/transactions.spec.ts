@@ -1,4 +1,8 @@
-import { test, expect } from '@playwright/test';
+import { test } from '@playwright/test';
+import { ChargeBuilder } from '../builders/charge.builder';
+import { ChargeReader, ChargeErrorReader } from '../readers/charge.reader';
+import { PaymentAssertions } from '../assertions/payment.assertions';
+import chargesData from '../data/charges.json';
 
 const BASE_URL = 'https://api.stripe.com/v1';
 const SECRET_KEY = process.env.API_TOKEN!;
@@ -10,161 +14,120 @@ const headers = {
 
 test.describe('Stripe — Charges (Transactions)', () => {
 
-  test('should create a charge successfully', async ({ request }) => {
-    // Arrange & Act
-    const response = await request.post(`${BASE_URL}/charges`, {
-      headers,
-      form: {
-        amount: '2000',
-        currency: 'usd',
-        source: 'tok_visa',
-        description: 'Test charge - Visa',
-      },
+  // ─── Happy Path — JSON data driven ──────────────────────────
+
+  for (const charge of chargesData.validCharges) {
+    test(`should create charge successfully — ${charge.id}`, async ({ request }) => {
+      // Arrange
+      const form = new ChargeBuilder()
+        .withAmount(charge.amount)
+        .withCurrency(charge.currency)
+        .withSource(charge.source)
+        .withDescription(charge.description)
+        .build();
+
+      // Act
+      const response = await request.post(`${BASE_URL}/charges`, { headers, form });
+      const body = await response.json();
+      console.log(body);
+      const reader = new ChargeReader(body);
+
+      // Assert
+      await PaymentAssertions.assertSuccess(response);
+      PaymentAssertions.assertChargeSucceeded(reader);
+      PaymentAssertions.assertChargeAmount(reader, charge.amount);
+      PaymentAssertions.assertChargeCurrency(reader, charge.currency);
     });
+  }
 
-    // Debug
-    const body = await response.json();
-    console.log(JSON.stringify(body, null, 2));
+  // ─── Decline Scenarios — JSON data driven ───────────────────
 
-    // Assert
-    expect(response.status()).toBe(200);
-    expect(body.id).toMatch(/^ch_/);
-    expect(body.status).toBe('succeeded');
-    expect(body.amount).toBe(2000);
-    expect(body.currency).toBe('usd');
-    expect(body.paid).toBe(true);
-  });
+  for (const charge of chargesData.declinedCharges) {
+    test(`should decline charge — ${charge.id}`, async ({ request }) => {
+      // Arrange
+      const form = new ChargeBuilder()
+        .withAmount(charge.amount)
+        .withCurrency(charge.currency)
+        .withSource(charge.source)
+        .withDescription(charge.description)
+        .build();
 
-  test('should create a charge with Mastercard', async ({ request }) => {
-    // Arrange & Act
-    const response = await request.post(`${BASE_URL}/charges`, {
-      headers,
-      form: {
-        amount: '5000',
-        currency: 'usd',
-        source: 'tok_mastercard',
-        description: 'Test charge - Mastercard',
-      },
+      // Act
+      const response = await request.post(`${BASE_URL}/charges`, { headers, form });
+      const body = await response.json();
+      console.log(body);
+      const errorReader = new ChargeErrorReader(body);
+
+      // Assert
+      await PaymentAssertions.assertDeclined(response);
+      PaymentAssertions.assertChargeDeclineCode(errorReader, charge.expectedErrorCode);
     });
+  }
 
-    // Debug
-    const body = await response.json();
-    console.log(JSON.stringify(body, null, 2));
-
-    // Assert
-    expect(response.status()).toBe(200);
-    expect(body.id).toMatch(/^ch_/);
-    expect(body.status).toBe('succeeded');
-    expect(body.amount).toBe(5000);
-  });
-
-  test('should fail charge for declined card', async ({ request }) => {
-    // Arrange & Act
-    const response = await request.post(`${BASE_URL}/charges`, {
-      headers,
-      form: {
-        amount: '2000',
-        currency: 'usd',
-        source: 'tok_chargeDeclined',
-        description: 'Test charge - Declined',
-      },
-    });
-
-    // Debug
-    const body = await response.json();
-    console.log(JSON.stringify(body, null, 2));
-
-    // Assert
-    expect(response.status()).toBe(402);
-    expect(body.error.code).toBe('card_declined');
-  });
-
-  test('should fail charge for insufficient funds', async ({ request }) => {
-    // Arrange & Act
-    const response = await request.post(`${BASE_URL}/charges`, {
-      headers,
-      form: {
-        amount: '2000',
-        currency: 'usd',
-        source: 'tok_chargeDeclinedInsufficientFunds',
-        description: 'Test charge - Insufficient funds',
-      },
-    });
-
-    // Debug
-    const body = await response.json();
-    console.log(JSON.stringify(body, null, 2));
-
-    // Assert
-    expect(response.status()).toBe(402);
-    expect(body.error.code).toBe('card_declined');
-    expect(body.error.decline_code).toBe('insufficient_funds');
-  });
-
-  test('should fail charge for expired card', async ({ request }) => {
-    // Arrange & Act
-    const response = await request.post(`${BASE_URL}/charges`, {
-      headers,
-      form: {
-        amount: '2000',
-        currency: 'usd',
-        source: 'tok_chargeDeclinedExpiredCard',
-        description: 'Test charge - Expired card',
-      },
-    });
-
-    // Debug
-    const body = await response.json();
-    console.log(JSON.stringify(body, null, 2));
-
-    // Assert
-    expect(response.status()).toBe(402);
-    expect(body.error.code).toBe('expired_card');
-  });
+  // ─── Retrieve Charge ─────────────────────────────────────────
 
   test('should retrieve existing charge', async ({ request }) => {
-    // Arrange — create charge first
-    const createRes = await request.post(`${BASE_URL}/charges`, {
-      headers,
-      form: {
-        amount: '1500',
-        currency: 'usd',
-        source: 'tok_visa',
-      },
-    });
+    // Arrange — create first
+    const form = new ChargeBuilder()
+      .withAmount(1500)
+      .withDescription('Retrieve test')
+      .build();
+
+    const createRes = await request.post(`${BASE_URL}/charges`, { headers, form });
     const created = await createRes.json();
+    const createdReader = new ChargeReader(created);
 
     // Act
-    const getRes = await request.get(`${BASE_URL}/charges/${created.id}`, {
+    const getRes = await request.get(`${BASE_URL}/charges/${createdReader.getId()}`, {
       headers: { Authorization: `Bearer ${SECRET_KEY}` },
     });
-
-    // Debug
     const body = await getRes.json();
-    console.log(JSON.stringify(body, null, 2));
+    console.log(body);
+    const reader = new ChargeReader(body);
 
     // Assert
-    expect(getRes.status()).toBe(200);
-    expect(body.id).toBe(created.id);
-    expect(body.amount).toBe(1500);
+    await PaymentAssertions.assertSuccess(getRes);
+    PaymentAssertions.assertChargeAmount(reader, 1500);
   });
+
+  // ─── Metadata ────────────────────────────────────────────────
+
+  test('should persist metadata on charge', async ({ request }) => {
+    // Arrange
+    const metadata = { order_id: 'ORD-001', env: 'test' };
+    const form = new ChargeBuilder()
+      .withAmount(2500)
+      .withMetadata(metadata)
+      .build();
+
+    // Act
+    const response = await request.post(`${BASE_URL}/charges`, { headers, form });
+    const body = await response.json();
+    console.log(body);
+    const reader = new ChargeReader(body);
+
+    // Assert
+    await PaymentAssertions.assertSuccess(response);
+    PaymentAssertions.assertChargeMetadata(reader, metadata);
+  });
+
+  // ─── List ────────────────────────────────────────────────────
 
   test('should list charges with limit', async ({ request }) => {
     // Act
     const response = await request.get(`${BASE_URL}/charges?limit=5`, {
       headers: { Authorization: `Bearer ${SECRET_KEY}` },
     });
-
-    // Debug
     const body = await response.json();
-    console.log(JSON.stringify(body, null, 2));
 
     // Assert
-    expect(response.status()).toBe(200);
-    expect(body.object).toBe('list');
-    expect(body.data).toBeInstanceOf(Array);
-    expect(body.data.length).toBeLessThanOrEqual(5);
+    await PaymentAssertions.assertSuccess(response);
+    test.expect(body.object).toBe('list');
+    test.expect(body.data).toBeInstanceOf(Array);
+    test.expect(body.data.length).toBeLessThanOrEqual(5);
   });
+
+  // ─── Auth ────────────────────────────────────────────────────
 
   test('should return 401 with invalid API key', async ({ request }) => {
     // Act
@@ -173,7 +136,7 @@ test.describe('Stripe — Charges (Transactions)', () => {
     });
 
     // Assert
-    expect(response.status()).toBe(401);
+    await PaymentAssertions.assertUnauthorized(response);
   });
 
 });

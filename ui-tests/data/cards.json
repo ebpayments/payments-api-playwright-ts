@@ -1,0 +1,58 @@
+{
+  "success": [
+    {
+      "id": "visa_success",
+      "number": "4242424242424242",
+      "expiry": "12/26",
+      "cvv": "123",
+      "holder": "Test User",
+      "expectedBrand": "visa",
+      "expectedLast4": "4242"
+    },
+    {
+      "id": "mastercard_success",
+      "number": "5555555555554444",
+      "expiry": "12/26",
+      "cvv": "456",
+      "holder": "MC User",
+      "expectedBrand": "mastercard",
+      "expectedLast4": "4444"
+    }
+  ],
+  "declined": [
+    {
+      "id": "generic_decline",
+      "number": "4000000000000002",
+      "expiry": "12/26",
+      "cvv": "123",
+      "holder": "Declined User",
+      "expectedError": "declined"
+    },
+    {
+      "id": "insufficient_funds",
+      "number": "4000000000009995",
+      "expiry": "12/26",
+      "cvv": "123",
+      "holder": "No Funds User",
+      "expectedError": "insufficient"
+    },
+    {
+      "id": "expired_card",
+      "number": "4000000000000069",
+      "expiry": "12/26",
+      "cvv": "123",
+      "holder": "Expired User",
+      "expectedError": "expired"
+    }
+  ],
+  "invalid": [
+    {
+      "id": "incomplete_card",
+      "number": "4242",
+      "expiry": "12/26",
+      "cvv": "123",
+      "holder": "Test User",
+      "expectedError": "16 digits"
+    }
+  ]
+}

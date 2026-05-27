@@ -1,20 +1,32 @@
 {
   "name": "payments-api-playwright-ts",
   "version": "1.0.0",
-  "description": "Payments API & UI Test Automation Framework — Playwright + TypeScript",
+  "description": "Payments API & UI Test Automation Framework — Playwright + TypeScript + Stripe Sandbox",
   "scripts": {
     "test": "playwright test",
     "test:api": "playwright test api-tests/",
     "test:ui": "playwright test ui-tests/",
+    "test:db": "playwright test api-tests/tests/db-validation.spec.ts",
     "test:report": "playwright test && playwright show-report",
+    "test:allure": "playwright test && allure generate allure-results --clean -o allure-report && allure open allure-report",
+    "allure:generate": "allure generate allure-results --clean -o allure-report",
+    "allure:open": "allure open allure-report",
     "lint": "tsc --noEmit"
   },
   "devDependencies": {
     "@playwright/test": "^1.44.0",
+    "@types/better-sqlite3": "^7.6.0",
     "@types/node": "^20.0.0",
+    "allure-commandline": "^2.27.0",
+    "allure-playwright": "^3.0.0",
+    "better-sqlite3": "^9.0.0",
+    "dotenv": "^16.0.0",
+    "ts-node": "^10.9.2",
     "typescript": "^5.4.0"
   },
   "dependencies": {
-    "dotenv": "^17.4.2"
+    "@types/express": "^5.0.6",
+    "express": "^5.2.1",
+    "stripe": "^22.1.1"
   }
 }

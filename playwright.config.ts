@@ -6,15 +6,29 @@ dotenv.config();
 export default defineConfig({
   testDir: '.',
   testMatch: ['api-tests/tests/**/*.spec.ts', 'ui-tests/tests/**/*.spec.ts'],
-  fullyParallel: true,
+  fullyParallel: false,
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 2 : 0,
-  workers: process.env.CI ? 4 : undefined,
-  reporter: [['html', { open: 'never' }], ['list']],
+  workers: 1,
+  reporter: [
+    ['html', { open: 'never', outputFolder: 'playwright-report' }],
+    ['list'],
+    ['allure-playwright', {
+      detail: true,
+      outputFolder: 'allure-results',
+      suiteTitle: true,
+      environmentInfo: {
+        framework: 'Playwright',
+        language: 'TypeScript',
+        environment: 'Stripe Sandbox',
+        node_version: process.version,
+      },
+    }],
+  ],
 
   use: {
-    baseURL: process.env.BASE_URL || 'https://sandbox.payments-demo.local',
-    trace: 'on-first-retry',
+    baseURL: process.env.BASE_URL || 'https://api.stripe.com',
+    trace: 'on',
     extraHTTPHeaders: {
       'Accept': 'application/json',
       'Content-Type': 'application/json',

@@ -1,4 +1,6 @@
-import { test, expect } from '@playwright/test';
+import { test } from '@playwright/test';
+import { ChargeReader, ChargeErrorReader } from '../readers/charge.reader';
+import { PaymentAssertions } from '../assertions/payment.assertions';
 
 const BASE_URL = 'https://api.stripe.com/v1';
 const SECRET_KEY = process.env.API_TOKEN!;
@@ -8,151 +10,131 @@ const headers = {
   'Content-Type': 'application/x-www-form-urlencoded',
 };
 
-test.describe('Stripe — Tokenization (Payment Methods)', () => {
+const TOKEN_SCENARIOS = [
+  {
+    id: 'visa',
+    token: 'tok_visa',
+    expectedBrand: 'visa',
+    expectedLast4: '4242',
+  },
+  {
+    id: 'mastercard',
+    token: 'tok_mastercard',
+    expectedBrand: 'mastercard',
+    expectedLast4: '4444',
+  },
+  {
+    id: 'amex',
+    token: 'tok_amex',
+    expectedBrand: 'amex',
+    expectedLast4: '8431',
+  },
+];
 
-  test('should create payment method with Visa token', async ({ request }) => {
-    // Arrange & Act
-    const response = await request.post(`${BASE_URL}/payment_methods`, {
-      headers,
-      form: {
-        type: 'card',
-        'card[token]': 'tok_visa',
-      },
+const DECLINE_SCENARIOS = [
+  {
+    id: 'generic_decline',
+    token: 'tok_chargeDeclined',
+    expectedCode: 'card_declined',
+  },
+  {
+    id: 'insufficient_funds',
+    token: 'tok_chargeDeclinedInsufficientFunds',
+    expectedCode: 'card_declined',
+  },
+  {
+    id: 'expired_card',
+    token: 'tok_chargeDeclinedExpiredCard',
+    expectedCode: 'expired_card',
+  },
+];
+
+test.describe('Stripe — Tokenization', () => {
+
+  // ─── Successful Tokenizations ────────────────────────────────
+
+  for (const scenario of TOKEN_SCENARIOS) {
+    test(`should tokenize and charge — ${scenario.id}`, async ({ request }) => {
+      // Arrange
+      const form = {
+        amount: '2000',
+        currency: 'usd',
+        source: scenario.token,
+        description: `Tokenization test — ${scenario.id}`,
+      };
+
+      // Act
+      const response = await request.post(`${BASE_URL}/charges`, { headers, form });
+      const body = await response.json();
+      console.log(body);
+      const reader = new ChargeReader(body);
+
+      // Assert
+      await PaymentAssertions.assertSuccess(response);
+      PaymentAssertions.assertChargeSucceeded(reader);
+      PaymentAssertions.assertChargeCardBrand(reader, scenario.expectedBrand);
+      PaymentAssertions.assertChargeCardLast4(reader, scenario.expectedLast4);
+      PaymentAssertions.assertNoPANInResponse(body, scenario.token);
     });
+  }
 
-    // Debug
-    const body = await response.json();
-    console.log(JSON.stringify(body, null, 2));
+  // ─── Decline Scenarios ───────────────────────────────────────
 
-    // Assert
-    expect(response.status()).toBe(200);
-    expect(body.id).toMatch(/^pm_/);
-    expect(body.type).toBe('card');
-    expect(body.card.brand).toBe('visa');
-    expect(body.card.last4).toBe('4242');
-    // PAN must NOT be visible
-    expect(JSON.stringify(body)).not.toContain('4242424242424242');
-  });
+  for (const scenario of DECLINE_SCENARIOS) {
+    test(`should decline tokenized charge — ${scenario.id}`, async ({ request }) => {
+      // Arrange
+      const form = {
+        amount: '2000',
+        currency: 'usd',
+        source: scenario.token,
+        description: `Decline test — ${scenario.id}`,
+      };
 
-  test('should create payment method with Mastercard token', async ({ request }) => {
-    // Arrange & Act
-    const response = await request.post(`${BASE_URL}/payment_methods`, {
-      headers,
-      form: {
-        type: 'card',
-        'card[token]': 'tok_mastercard',
-      },
+      // Act
+      const response = await request.post(`${BASE_URL}/charges`, { headers, form });
+      const body = await response.json();
+      console.log(body);
+      const errorReader = new ChargeErrorReader(body);
+
+      // Assert
+      await PaymentAssertions.assertDeclined(response);
+      PaymentAssertions.assertChargeDeclineCode(errorReader, scenario.expectedCode);
     });
+  }
 
-    // Debug
-    const body = await response.json();
-    console.log(JSON.stringify(body, null, 2));
+  // ─── PAN Security ────────────────────────────────────────────
 
-    // Assert
-    expect(response.status()).toBe(200);
-    expect(body.id).toMatch(/^pm_/);
-    expect(body.card.brand).toBe('mastercard');
-    expect(body.card.last4).toBe('4444');
-  });
-
-  test('should create payment method with declined card token', async ({ request }) => {
-    // Arrange & Act
-    const response = await request.post(`${BASE_URL}/payment_methods`, {
-      headers,
-      form: {
-        type: 'card',
-        'card[token]': 'tok_chargeDeclined',
-      },
-    });
-
-    // Debug
-    const body = await response.json();
-    console.log(JSON.stringify(body, null, 2));
-
-    // Assert — pm is created but will fail on charge
-    expect(response.status()).toBe(200);
-    expect(body.id).toMatch(/^pm_/);
-  });
-
-  test('should create payment method with insufficient funds token', async ({ request }) => {
-    // Arrange & Act
-    const response = await request.post(`${BASE_URL}/payment_methods`, {
-      headers,
-      form: {
-        type: 'card',
-        'card[token]': 'tok_chargeDeclinedInsufficientFunds',
-      },
-    });
-
-    // Debug
-    const body = await response.json();
-    console.log(JSON.stringify(body, null, 2));
-
-    // Assert
-    expect(response.status()).toBe(200);
-    expect(body.id).toMatch(/^pm_/);
-  });
-
-  test('should create payment method with expired card token', async ({ request }) => {
-    // Arrange & Act
-    const response = await request.post(`${BASE_URL}/payment_methods`, {
-      headers,
-      form: {
-        type: 'card',
-        'card[token]': 'tok_chargeDeclinedExpiredCard',
-      },
-    });
-
-    // Debug
-    const body = await response.json();
-    console.log(JSON.stringify(body, null, 2));
-
-    // Assert
-    expect(response.status()).toBe(200);
-    expect(body.id).toMatch(/^pm_/);
-  });
-
-  test('should retrieve existing payment method', async ({ request }) => {
-    // Arrange — create one first
-    const createRes = await request.post(`${BASE_URL}/payment_methods`, {
-      headers,
-      form: {
-        type: 'card',
-        'card[token]': 'tok_visa',
-      },
-    });
-    const created = await createRes.json();
+  test('should never expose raw card number in response', async ({ request }) => {
+    // Arrange
+    const form = {
+      amount: '1000',
+      currency: 'usd',
+      source: 'tok_visa',
+    };
 
     // Act
-    const getRes = await request.get(`${BASE_URL}/payment_methods/${created.id}`, {
-      headers: { Authorization: `Bearer ${SECRET_KEY}` },
-    });
+    const response = await request.post(`${BASE_URL}/charges`, { headers, form });
+    const body = await response.json();
 
-    // Debug
-    const body = await getRes.json();
-    console.log(JSON.stringify(body, null, 2));
-
-    // Assert
-    expect(getRes.status()).toBe(200);
-    expect(body.id).toBe(created.id);
-    expect(body.card.last4).toBe('4242');
+    // Assert — raw PAN must never appear
+    await PaymentAssertions.assertSuccess(response);
+    PaymentAssertions.assertNoPANInResponse(body, '4242424242424242');
   });
+
+  // ─── Auth ────────────────────────────────────────────────────
 
   test('should return 401 with invalid API key', async ({ request }) => {
     // Act
-    const response = await request.post(`${BASE_URL}/payment_methods`, {
+    const response = await request.post(`${BASE_URL}/charges`, {
       headers: {
         Authorization: 'Bearer sk_test_invalid',
         'Content-Type': 'application/x-www-form-urlencoded',
       },
-      form: {
-        type: 'card',
-        'card[token]': 'tok_visa',
-      },
+      form: { amount: '1000', currency: 'usd', source: 'tok_visa' },
     });
 
     // Assert
-    expect(response.status()).toBe(401);
+    await PaymentAssertions.assertUnauthorized(response);
   });
 
 });

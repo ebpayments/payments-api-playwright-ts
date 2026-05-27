@@ -1,0 +1,59 @@
+{
+  "validIntents": [
+    {
+      "id": "basic_usd",
+      "amount": 2000,
+      "currency": "usd",
+      "description": "Basic USD payment intent",
+      "expectedStatus": "requires_payment_method"
+    },
+    {
+      "id": "large_amount",
+      "amount": 99999,
+      "currency": "usd",
+      "description": "Large amount payment intent",
+      "expectedStatus": "requires_payment_method"
+    },
+    {
+      "id": "eur_currency",
+      "amount": 1500,
+      "currency": "eur",
+      "description": "EUR payment intent",
+      "expectedStatus": "requires_payment_method"
+    }
+  ],
+  "confirmedIntents": [
+    {
+      "id": "visa_confirmed",
+      "amount": 5000,
+      "currency": "usd",
+      "paymentMethod": "pm_card_visa",
+      "expectedStatus": "succeeded"
+    },
+    {
+      "id": "mastercard_confirmed",
+      "amount": 3000,
+      "currency": "usd",
+      "paymentMethod": "pm_card_mastercard",
+      "expectedStatus": "succeeded"
+    }
+  ],
+  "invalidIntents": [
+    {
+      "id": "missing_amount",
+      "currency": "usd",
+      "expectedErrorParam": "amount"
+    },
+    {
+      "id": "missing_currency",
+      "amount": 1000,
+      "expectedErrorParam": "currency"
+    },
+    {
+      "id": "zero_amount",
+      "amount": 0,
+      "currency": "usd",
+      "expectedErrorParam": "amount"
+    }
+  ]
+}

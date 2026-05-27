@@ -1,0 +1,14 @@
+{
+  error: {
+    advice_code: 'try_again_later',
+    charge: 'ch_3TbYGuDFCgWUC4tp0IQ3bd3u',
+    code: 'card_declined',
+    decline_code: 'insufficient_funds',
+    doc_url: 'https://stripe.com/docs/error-codes/card-declined',
+    message: 'Your card has insufficient funds.',
+    network_advice_code: '02',
+    network_decline_code: '51',
+    request_log_url: 'https://dashboard.stripe.com/acct_1TbWWTDFCgWUC4tp/test/workbench/logs?object=req_BthiKEZYPRkQqI',
+    type: 'card_error'
+  }
+}
